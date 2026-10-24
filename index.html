@@ -77,8 +77,8 @@ function loginUI(onGoogle) {
   o.innerHTML = `<div style="width:100%;max-width:380px;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:24px;box-shadow:0 10px 30px rgba(15,23,42,.08);text-align:center">
     <div style="font-weight:800;font-size:20px;color:#0f172a">LENTERA MURID</div>
     <div style="font-size:12px;color:#64748b;margin:2px 0 18px">UPTD SPF SD Negeri Lanas 1</div>
-    <div style="font-size:13px;color:#334155;margin-bottom:16px;line-height:1.5">Akses hanya untuk <b>Kepala Sekolah</b> dan <b>Operator</b> menggunakan akun <b>belajar.id</b>.</div>
-    <button id="lm-go" style="width:100%;padding:11px;border:0;border-radius:10px;background:#1d4ed8;color:#fff;font-family:inherit;font-weight:700;font-size:14px;cursor:pointer">Masuk dengan akun belajar.id</button>
+    <div style="font-size:13px;color:#334155;margin-bottom:16px;line-height:1.5">Akses hanya untuk <b>Kepala Sekolah</b> dan <b>Operator</b> menggunakan akun <b>Google</b> yang sudah didaftarkan (belajar.id atau Gmail).</div>
+    <button id="lm-go" style="width:100%;padding:11px;border:0;border-radius:10px;background:#1d4ed8;color:#fff;font-family:inherit;font-weight:700;font-size:14px;cursor:pointer">Masuk dengan Google</button>
     <div id="lm-err" style="color:#b91c1c;font-size:12px;min-height:18px;margin-top:12px;line-height:1.4"></div></div>`;
   document.body.appendChild(o);
   const err = o.querySelector("#lm-err"), go = o.querySelector("#lm-go");
@@ -100,7 +100,7 @@ function loginUI(onGoogle) {
   status("conn");
   const ROLES = { kepala_sekolah: "Kepala Sekolah", operator: "Operator" };
   const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ hd: "belajar.id", prompt: "select_account" });
+  provider.setCustomParameters({ prompt: "select_account" });
   let overlay = null, done = false;
   const user = await new Promise(res => {
     onAuthStateChanged(auth, async u => {
@@ -113,7 +113,6 @@ function loginUI(onGoogle) {
         return;
       }
       const em = (u.email || "").toLowerCase(), deny = async m => { await signOut(auth); overlay && overlay.setMsg(m); };
-      if (!/@belajar\.id$/.test(em)) return deny("Gunakan akun belajar.id. Akun " + em + " tidak diizinkan.");
       try {
         const snap = await getDoc(doc(db, "pengguna", em)), p = snap.exists() ? snap.data().peran : null;
         if (!ROLES[p]) return deny("Akun " + em + " belum terdaftar sebagai Kepala Sekolah/Operator. Hubungi administrator.");

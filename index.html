@@ -110,7 +110,7 @@ function loginUI(onGoogle, onClose) {
     [fa, au, fs] = await Promise.all([import(B + "firebase-app.js"), import(B + "firebase-auth.js"), import(B + "firebase-firestore.js")]);
   } catch (e) { console.error(e); offline(); return; }
   const { initializeApp } = fa, { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut } = au;
-  const { getFirestore, collection, onSnapshot, writeBatch, doc, getDoc, setDoc, getDocs } = fs;
+  const { getFirestore, collection, onSnapshot, writeBatch, doc, getDoc, setDoc, getDocs, deleteDoc } = fs;
   const app = initializeApp(FIREBASE_CONFIG), auth = getAuth(app), db = getFirestore(app);
 
   status("conn");
@@ -245,10 +245,11 @@ function loginUI(onGoogle, onClose) {
           if (!o || o.nama !== v.nama || o.nomor !== v.nomor || o.jenis !== v.jenis || o.kelasJabatan !== v.kelasJabatan || o.jk !== v.jk || o.aktif !== v.aktif) ops.push([id, { ...v, diperbarui: new Date().toISOString() }]);
         }
         dels.forEach(id => ops.push([id, null]));
-        for (let i = 0; i < ops.length; i += 400) {
-          const b = writeBatch(db);
-          ops.slice(i, i + 400).forEach(([id, v]) => v ? b.set(doc(db, MIRROR, id), v) : b.delete(doc(db, MIRROR, id)));
-          await b.commit();
+        /* Satu dokumen per permintaan (bukan batch): aturan Firestore membatasi batch hanya 20 pembacaan dokumen
+           oleh aturan, sedangkan isStaff() memakai 2 per penulisan, sehingga batch besar ditolak "insufficient permissions". */
+        for (const [id, v] of ops) {
+          if (v) await setDoc(doc(db, MIRROR, id), v);
+          else await deleteDoc(doc(db, MIRROR, id));
         }
         mirrorLast = k;
       } catch (e) { console.warn("Cermin anggota gagal:", e); }

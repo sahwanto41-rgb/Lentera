@@ -110,7 +110,7 @@ function loginUI(onGoogle, onClose) {
     [fa, au, fs] = await Promise.all([import(B + "firebase-app.js"), import(B + "firebase-auth.js"), import(B + "firebase-firestore.js")]);
   } catch (e) { console.error(e); offline(); return; }
   const { initializeApp } = fa, { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut } = au;
-  const { getFirestore, collection, onSnapshot, writeBatch, doc, getDoc, setDoc } = fs;
+  const { getFirestore, collection, onSnapshot, writeBatch, doc, getDoc, setDoc, getDocs } = fs;
   const app = initializeApp(FIREBASE_CONFIG), auth = getAuth(app), db = getFirestore(app);
 
   status("conn");
@@ -216,12 +216,52 @@ function loginUI(onGoogle, onClose) {
     } catch (e) { console.error(e); status("err"); }
   }
 
+  /* ---------- Cermin Anggota Perpustakaan (untuk LIBRA GENIUS) ----------
+     Salinan MINIMAL: hanya nama, NISN, kelas, jenis kelamin, status aktif. Tidak memuat NIK, alamat, orang tua, atau dokumen.
+     Hanya petugas yang login yang menulis (dipanggil dari LM.stats yang sudah berlaku hanya untuk petugas). */
+  const MIRROR = "anggota_perpustakaan";
+  let mirrorLast = "", mirrorTimer = null;
+  function mirrorAnggota(arr) {
+    const rows = [], seen = new Set();
+    for (const x of arr) {
+      const nisn = String((x && x.nisn) || "").replace(/\D/g, "");
+      const nama = String((x && x.nama) || "").replace(/\s+/g, " ").trim();
+      if (!nisn || !nama || seen.has(nisn)) continue;
+      seen.add(nisn);
+      rows.push({ id: "siswa_" + nisn, nama, nomor: nisn, jenis: "SISWA", kelasJabatan: x.kelas ? "Kelas " + x.kelas : "", jk: x.jenisKelamin === "P" ? "P" : x.jenisKelamin === "L" ? "L" : "", aktif: x.status === "Aktif" });
+    }
+    if (!rows.length) return;
+    const k = stable(rows); if (k === mirrorLast) return;
+    clearTimeout(mirrorTimer);
+    mirrorTimer = setTimeout(async () => {
+      try {
+        const old = new Map(); (await getDocs(collection(db, MIRROR))).forEach(d => old.set(d.id, d.data()));
+        const ids = new Set(rows.map(r => r.id)), dels = [];
+        old.forEach((v, id) => { if (id.startsWith("siswa_") && !ids.has(id)) dels.push(id); });
+        if (dels.length > Math.max(5, old.size * 0.3)) { console.warn("Cermin anggota: penghapusan massal ditahan (" + dels.length + ")."); dels.length = 0; }
+        const ops = [];
+        for (const r of rows) {
+          const { id, ...v } = r, o = old.get(id);
+          if (!o || o.nama !== v.nama || o.nomor !== v.nomor || o.jenis !== v.jenis || o.kelasJabatan !== v.kelasJabatan || o.jk !== v.jk || o.aktif !== v.aktif) ops.push([id, { ...v, diperbarui: new Date().toISOString() }]);
+        }
+        dels.forEach(id => ops.push([id, null]));
+        for (let i = 0; i < ops.length; i += 400) {
+          const b = writeBatch(db);
+          ops.slice(i, i + 400).forEach(([id, v]) => v ? b.set(doc(db, MIRROR, id), v) : b.delete(doc(db, MIRROR, id)));
+          await b.commit();
+        }
+        mirrorLast = k;
+      } catch (e) { console.warn("Cermin anggota gagal:", e); }
+    }, 2500);
+  }
+
   let lastStat = "";
   window.LM = {
     push(name, arr) { const s = S[name]; if (s && s.hydrated && window.__lmCanEdit) sync(s, arr, false); },
     /* Ringkasan angka (tanpa data pribadi) untuk Dashboard Sekolahku -> statistik/ringkasan */
     stats(arr) {
       const s = S.students; if (!window.__lmCanEdit || !s || !s.hydrated || !Array.isArray(arr)) return;
+      mirrorAnggota(arr);
       const n = st => arr.filter(x => x.status === st).length, ak = arr.filter(x => x.status === "Aktif");
       const v = { total: arr.length, aktif: ak.length, laki: ak.filter(x => x.jenisKelamin === "L").length, perempuan: ak.filter(x => x.jenisKelamin === "P").length, pip: ak.filter(x => x.penerimaPIP).length, mutasiMasuk: n("Mutasi Masuk"), mutasiKeluar: n("Mutasi Keluar"), alumni: n("Alumni") };
       const k = stable(v); if (k === lastStat) return; lastStat = k;
